@@ -1,7 +1,7 @@
 substitutions:
   device_name: "linkgear-co2-ampel"
   friendly_name: "LinkGear CO2 Ampel"
-  project_name: "linkgear.eca"
+  project_name: "LinkGear.co2ampel"
   project_version: "1.0"
 
 esphome:
@@ -22,21 +22,22 @@ logger:
 # Enable Home Assistant API
 api:
   actions:
-    - action: eca_action_rtttl
-      variables:
-        song_str: string
-      then:
-        - rtttl.play:
-            rtttl: !lambda 'return song_str;'
-      
-      
+  - action: eca_action_rtttl
+    variables:
+      song_str: string
+    then:
+    - rtttl.play:
+        rtttl: !lambda 'return song_str;'
+
+
 # Enable Over The Air updates
 ota:
   platform: esphome
 
 #Public location of this yaml file
 dashboard_import:
-  package_import_url: github://performeon/LinkGearMisc/products/lg-eca/eca_esphome_config_hwv1_cv1.yaml@main
+  package_import_url: 
+    github://performeon/LinkGearMisc/products/lg-eca/eca_esphome_config_hwv1_cv1.yaml@main
   import_full_config: true
 
 # Enable fallback hotspot (captive portal) in case wifi connection fails
@@ -58,116 +59,116 @@ i2c:
   id: bus_a
 
 sensor:
-  - platform: scd4x
-    ambient_pressure_compensation_source: eca_bme_pressure
+- platform: scd4x
+  ambient_pressure_compensation_source: eca_bme_pressure
     # temperature_offset: 4  # 4 is default, adjust to your needs
-    update_interval: 60s
-    co2:
-      name: "SCD41 CO2"
-      id: eca_scd41_co2
-      on_value:
-        then:
-          - if:
-              condition:
+  update_interval: 60s
+  co2:
+    name: "SCD41 CO2"
+    id: eca_scd41_co2
+    on_value:
+      then:
+      - if:
+          condition:
                 # Green (Good) - CO2 < 800 ppm
-                lambda: 'return id(eca_scd41_co2).state < 800;'
-              then:
-                - light.turn_on:
-                    id: eca_leds
-                    brightness: 40%
-                    red: 0%
-                    green: 100%
-                    blue: 0%
-          - if:
-              condition:
+            lambda: 'return id(eca_scd41_co2).state < 800;'
+          then:
+          - light.turn_on:
+              id: eca_leds
+              brightness: 30%
+              red: 0%
+              green: 100%
+              blue: 0%
+      - if:
+          condition:
                 # Yellow (Moderate) - CO2 between 800 and 1200 ppm
-                lambda: 'return id(eca_scd41_co2).state >= 800 && id(eca_scd41_co2).state < 1200;'
-              then:
-                - light.turn_on:
-                    id: eca_leds
-                    brightness: 40%
-                    red: 100%
-                    green: 100%
-                    blue: 0%
-          - if:
-              condition:
+            lambda: 'return id(eca_scd41_co2).state >= 800 && id(eca_scd41_co2).state < 1200;'
+          then:
+          - light.turn_on:
+              id: eca_leds
+              brightness: 30%
+              red: 100%
+              green: 100%
+              blue: 0%
+      - if:
+          condition:
                 # Orange (Poor) - CO2 between 1200 and 1500 ppm
-                lambda: 'return id(eca_scd41_co2).state >= 1200 && id(eca_scd41_co2).state < 1500;'
-              then:
-                - light.turn_on:
-                    id: eca_leds
-                    brightness: 40%
-                    red: 100%
-                    green: 50%
-                    blue: 0%
-          - if:
-              condition:
+            lambda: 'return id(eca_scd41_co2).state >= 1200 && id(eca_scd41_co2).state < 1500;'
+          then:
+          - light.turn_on:
+              id: eca_leds
+              brightness: 30%
+              red: 100%
+              green: 50%
+              blue: 0%
+      - if:
+          condition:
                 # Red (Unhealthy) - CO2 > 1500 ppm
-                lambda: 'return id(eca_scd41_co2).state >= 1500;'
-              then:
-                - light.turn_on:
-                    id: eca_leds
-                    brightness: 60%
-                    red: 100%
-                    green: 0%
-                    blue: 0%
+            lambda: 'return id(eca_scd41_co2).state >= 1500;'
+          then:
+          - light.turn_on:
+              id: eca_leds
+              brightness: 50%
+              red: 100%
+              green: 0%
+              blue: 0%
 
-    temperature:
-      name: "SCD41 Temperature"
-      id: eca_scd41_temp
-    humidity:
-      name: "SCD41 Humidity"
-      id: eca_scd41_hum
+  temperature:
+    name: "SCD41 Temperature"
+    id: eca_scd41_temp
+  humidity:
+    name: "SCD41 Humidity"
+    id: eca_scd41_hum
 
-  - platform: bme280_i2c
-    address: 0x76
-    temperature:
-      name: "BME280 Temperature"
-      id: eca_bme_temp
-    pressure:
-      name: "BME280 Pressure"
-      id: eca_bme_pressure
-    humidity:
-      name: "BME280 Humidity"
-      id: eca_bme_hum
+- platform: bme280_i2c
+  address: 0x76
+  temperature:
+    name: "BME280 Temperature"
+    id: eca_bme_temp
+  pressure:
+    name: "BME280 Pressure"
+    id: eca_bme_pressure
+  humidity:
+    name: "BME280 Humidity"
+    id: eca_bme_hum
 
-  - platform: bh1750
-    name: "BH1750 Illuminance"
-    id: eca_bh1750_illuminance
-    address: 0x23
-    update_interval: 60s
-    
-  - platform: template
-    name: "SCD41 CO2 Moving Average 60m"
-    id: eca_co2_moving_avg
-    unit_of_measurement: "ppm"
-    lambda: |-
-      return id(eca_scd41_co2).state;
-    filters:
-      - sliding_window_moving_average:
-          window_size: 60
-          send_every: 5
-      
+- platform: bh1750
+  name: "BH1750 Illuminance"
+  id: eca_bh1750_illuminance
+  address: 0x23
+  update_interval: 60s
+
+- platform: template
+  name: "SCD41 CO2 Moving Average 60m"
+  id: eca_co2_moving_avg
+  unit_of_measurement: "ppm"
+  lambda: |-
+    return id(eca_scd41_co2).state;
+  filters:
+  - sliding_window_moving_average:
+      window_size: 60
+      send_every: 5
+
 light:
-  - platform: esp32_rmt_led_strip
-    name: "SK6812 LEDs"
-    rgb_order: GRB
-    pin: GPIO18
-    num_leds: 8
-    rmt_channel: 0
-    chipset: SK6812
-    id: eca_leds
-    restore_mode: ALWAYS_OFF  # Ensures the light is initially off
-      
-      
+- platform: esp32_rmt_led_strip
+  name: "SK6812 LEDs"
+  rgb_order: GRB
+  pin: GPIO18
+  num_leds: 8
+  rmt_channel: 0
+  chipset: SK6812
+  id: eca_leds
+  restore_mode: ALWAYS_OFF    # Ensures the light is initially off
+
 output:
-  - platform: ledc
-    pin: GPIO19
-    channel: 0
-    id: eca_buzzer_gpio19
+- platform: ledc
+  pin: GPIO19
+  channel: 0
+  id: eca_buzzer_gpio19
 
 rtttl:
   output: eca_buzzer_gpio19
+  gain: 90%
   on_finished_playback:
-     - logger.log: 'Song ended!'
+  - logger.log: 'Song ended!'
   id: eca_buzzer

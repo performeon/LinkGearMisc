@@ -3,7 +3,6 @@ substitutions:
   friendly_name: "LinkGear CO2 Ampel"
   project_name: "linkgear.eca"
   project_version: "1.0"
-  ap_pwd: "12345678"
 
 esphome:
   name: "${device_name}"
@@ -45,10 +44,12 @@ captive_portal:
 
 improv_serial:
 
+esp32_improv:
+  authorizer: false
+
 wifi:
   ap:
     ssid: "${friendly_name}"
-    password: "${ap_pwd}"
 
 i2c:
   sda: GPIO21

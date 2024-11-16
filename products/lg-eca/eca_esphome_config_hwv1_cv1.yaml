@@ -116,6 +116,8 @@ sensor:
   temperature:
     name: "SCD41 Temperature"
     id: eca_scd41_temp
+    filters:
+      - offset: -4 # -4 is a good value when used in an enclosure
   humidity:
     name: "SCD41 Humidity"
     id: eca_scd41_hum
@@ -125,6 +127,8 @@ sensor:
   temperature:
     name: "BME280 Temperature"
     id: eca_bme_temp
+    filters:
+      - offset: -7 # -7 is a good value when used in an enclosure
   pressure:
     name: "BME280 Pressure"
     id: eca_bme_pressure
@@ -147,7 +151,7 @@ sensor:
   filters:
   - sliding_window_moving_average:
       window_size: 60
-      send_every: 5
+      send_every: 1
 
 light:
 - platform: esp32_rmt_led_strip

@@ -1,0 +1,178 @@
+substitutions:
+  device_name: "linkgear-co2-ampel"
+  friendly_name: "LinkGear CO2 Ampel"
+  project_name: "LinkGear.co2ampel"
+  project_version: "1.1"
+
+esphome:
+  name: "${device_name}"
+  name_add_mac_suffix: true
+  project:
+    name: "${project_name}"
+    version: "${project_version}"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  actions:
+  - action: eca_action_rtttl
+    variables:
+      song_str: string
+    then:
+    - rtttl.play:
+        rtttl: !lambda 'return song_str;'
+
+
+# Enable Over The Air updates
+ota:
+  platform: esphome
+
+#Public location of this yaml file
+dashboard_import:
+  package_import_url: 
+    github://performeon/LinkGearMisc/products/lg-eca/eca_esphome_config_hwv1d1_cv1.yaml@main
+  import_full_config: true
+
+# Enable fallback hotspot (captive portal) in case wifi connection fails
+captive_portal:
+
+improv_serial:
+
+esp32_improv:
+  authorizer: false
+
+wifi:
+  ap:
+    ssid: "${friendly_name}"
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+  id: bus_a
+
+sensor:
+- platform: scd4x
+  ambient_pressure_compensation_source: eca_bme_pressure
+    # temperature_offset: 4  # 4 is default, adjust to your needs
+  update_interval: 60s
+  co2:
+    name: "SCD41 CO2"
+    id: eca_scd41_co2
+    on_value:
+      then:
+      - if:
+          condition:
+                # Green (Good) - CO2 < 800 ppm
+            lambda: 'return id(eca_scd41_co2).state < 800;'
+          then:
+          - light.turn_on:
+              id: eca_leds
+              brightness: 30%
+              red: 0%
+              green: 100%
+              blue: 0%
+      - if:
+          condition:
+                # Yellow (Moderate) - CO2 between 800 and 1200 ppm
+            lambda: 'return id(eca_scd41_co2).state >= 800 && id(eca_scd41_co2).state < 1200;'
+          then:
+          - light.turn_on:
+              id: eca_leds
+              brightness: 30%
+              red: 100%
+              green: 100%
+              blue: 0%
+      - if:
+          condition:
+                # Orange (Poor) - CO2 between 1200 and 1500 ppm
+            lambda: 'return id(eca_scd41_co2).state >= 1200 && id(eca_scd41_co2).state < 1500;'
+          then:
+          - light.turn_on:
+              id: eca_leds
+              brightness: 30%
+              red: 100%
+              green: 50%
+              blue: 0%
+      - if:
+          condition:
+                # Red (Unhealthy) - CO2 > 1500 ppm
+            lambda: 'return id(eca_scd41_co2).state >= 1500;'
+          then:
+          - light.turn_on:
+              id: eca_leds
+              brightness: 50%
+              red: 100%
+              green: 0%
+              blue: 0%
+
+  temperature:
+    name: "SCD41 Temperature"
+    id: eca_scd41_temp
+    filters:
+      - offset: -4 # -4 is a good value when used in an enclosure
+  humidity:
+    name: "SCD41 Humidity"
+    id: eca_scd41_hum
+
+- platform: bme280_i2c
+  address: 0x76
+  temperature:
+    name: "BME280 Temperature"
+    id: eca_bme_temp
+    filters:
+      - offset: -7 # -7 is a good value when used in an enclosure
+  pressure:
+    name: "BME280 Pressure"
+    id: eca_bme_pressure
+  humidity:
+    name: "BME280 Humidity"
+    id: eca_bme_hum
+
+- platform: bh1750
+  name: "BH1750 Illuminance"
+  id: eca_bh1750_illuminance
+  address: 0x5c
+  update_interval: 60s
+
+- platform: template
+  name: "SCD41 CO2 Moving Average 60m"
+  id: eca_co2_moving_avg
+  unit_of_measurement: "ppm"
+  lambda: |-
+    return id(eca_scd41_co2).state;
+  filters:
+  - sliding_window_moving_average:
+      window_size: 60
+      send_every: 1
+
+light:
+- platform: esp32_rmt_led_strip
+  name: "SK6812 LEDs"
+  rgb_order: GRB
+  pin: GPIO18
+  num_leds: 8
+  rmt_channel: 0
+  chipset: SK6812
+  id: eca_leds
+  restore_mode: ALWAYS_OFF    # Ensures the light is initially off
+
+output:
+- platform: ledc
+  pin: GPIO19
+  channel: 0
+  id: eca_buzzer_gpio19
+
+rtttl:
+  output: eca_buzzer_gpio19
+  gain: 90%
+  on_finished_playback:
+  - logger.log: 'Song ended!'
+  id: eca_buzzer

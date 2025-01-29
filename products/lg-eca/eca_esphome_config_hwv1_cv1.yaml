@@ -46,7 +46,7 @@ captive_portal:
 improv_serial:
 
 esp32_improv:
-  authorizer: false
+  authorizer: none
 
 wifi:
   ap:

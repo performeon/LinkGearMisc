@@ -1,5 +1,5 @@
 substitutions:
-  name: lg-emess-pt
+  device_name: lg-emess-pt
   friendly_name: LinkGear EMESS-PT
   project_name: linkgear.emess_pt
   project_version: "1.0.0"

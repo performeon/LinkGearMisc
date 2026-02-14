@@ -1,0 +1,365 @@
+substitutions:
+  name: lg-emess-pt
+  friendly_name: LinkGear EMESS-PT
+  project_name: linkgear.emess_pt
+  project_version: "1.0.0"
+  hw_version: "hwv1d1"
+  config_version: "cv1"
+
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  name_add_mac_suffix: true
+  project:
+    name: "${project_name}"
+    version: "${project_version}"
+  comment: "${hw_version}_${config_version}"
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: update_status_leds_from_temperature
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  actions:
+  - action: emess_action_rtttl
+    variables:
+      song_str: string
+    then:
+    - rtttl.play:
+        rtttl: !lambda 'return song_str;'
+
+
+# Enable Over The Air updates
+ota:
+  platform: esphome
+
+#Public location of this yaml file
+dashboard_import:
+  package_import_url: 
+    github://performeon/LinkGearMisc/products/lg-emept/emept_esphome_config_hwv1d0_cv1.yaml@main
+  import_full_config: true
+
+# Enable fallback hotspot (captive portal) in case wifi connection fails
+captive_portal:
+
+improv_serial:
+
+esp32_improv:
+  authorizer: none
+
+wifi:
+  ap:
+    ssid: "${friendly_name}"
+
+# =====================================================
+# SPI BUS
+# =====================================================
+spi:
+  id: spi_bus
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+  miso_pin: GPIO19
+
+# =====================================================
+# GLOBAL ENABLE FLAGS (prevents error spam)
+# =====================================================
+globals:
+  - id: ch1_enabled
+    type: bool
+    restore_value: true
+    initial_value: "true"
+
+  - id: ch2_enabled
+    type: bool
+    restore_value: true
+    initial_value: "true"
+
+# =====================================================
+# LED COLOR RANGE (Home Assistant sliders)
+# =====================================================
+number:
+  - platform: template
+    id: led_color_min_c
+    name: "${friendly_name} LED Color Min °C"
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -20
+    max_value: 200
+    step: 1
+    initial_value: 0
+    set_action:
+      - script.execute: update_status_leds_from_temperature
+
+  - platform: template
+    id: led_color_max_c
+    name: "${friendly_name} LED Color Max °C"
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -20
+    max_value: 200
+    step: 1
+    initial_value: 80
+    set_action:
+      - script.execute: update_status_leds_from_temperature
+
+  - platform: template
+    id: led_brightness_pct
+    name: "${friendly_name} LED Brightness %"
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: 1
+    max_value: 100
+    step: 1
+    initial_value: 45
+    set_action:
+      - script.execute: update_status_leds_from_temperature
+
+# =====================================================
+# MAX31865 SENSORS
+# =====================================================
+sensor:
+  # -------------------------------------------------
+  # CHANNEL 1 – PT100 (DEFAULT)
+  # -------------------------------------------------
+  - platform: max31865
+    id: pt_channel_1_raw
+    name: "${friendly_name} PT Channel 1"
+    spi_id: spi_bus
+    cs_pin: GPIO5
+
+    # --- DEFAULT (PT1000, 2-WIRE) ---
+    rtd_nominal_resistance: 100.0
+    reference_resistance: 400.0
+    #rtd_wires: 2
+
+    # --- EXAMPLE PT1000 3-WIRE ---
+    rtd_wires: 3
+
+    # --- EXAMPLE PT1000 4-WIRE ---
+    # rtd_wires: 4
+
+    update_interval: 5s
+    accuracy_decimals: 2
+
+    filters:
+      - lambda: |-
+          if (!id(ch1_enabled)) return NAN;
+          return x;
+    on_value:
+      then:
+        - script.execute: update_status_leds_from_temperature
+
+  # -------------------------------------------------
+  # CHANNEL 2 – PT1000 (DEFAULT)
+  # -------------------------------------------------
+  - platform: max31865
+    id: pt_channel_2_raw
+    name: "${friendly_name} PT Channel 2"
+    spi_id: spi_bus
+    cs_pin: GPIO4
+
+    # --- DEFAULT (PT100, 2-WIRE) ---
+    rtd_nominal_resistance: 1000.0
+    reference_resistance: 4000.0
+    rtd_wires: 2
+
+    update_interval: 5s
+    accuracy_decimals: 2
+
+    filters:
+      - lambda: |-
+          if (!id(ch2_enabled)) return NAN;
+          return x;
+    on_value:
+      then:
+        - script.execute: update_status_leds_from_temperature
+
+# =====================================================
+# ENABLE / DISABLE SWITCHES
+# =====================================================
+switch:
+  - platform: template
+    name: "${friendly_name} Enable Channel 1"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: id(ch1_enabled) = true;
+      - script.execute: update_status_leds_from_temperature
+    turn_off_action:
+      - lambda: id(ch1_enabled) = false;
+      - script.execute: update_status_leds_from_temperature
+    optimistic: true
+
+  - platform: template
+    name: "${friendly_name} Enable Channel 2"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: id(ch2_enabled) = true;
+      - script.execute: update_status_leds_from_temperature
+    turn_off_action:
+      - lambda: id(ch2_enabled) = false;
+      - script.execute: update_status_leds_from_temperature
+    optimistic: true
+
+# =====================================================
+# BUZZER
+# =====================================================
+output:
+  - platform: ledc
+    id: buzzer_output
+    pin: GPIO25
+
+rtttl:
+  output: buzzer_output
+  gain: 90%
+  id: emess_buzzer
+
+
+# =====================================================
+# COLOR TEMPERATURE SCRIPT
+# =====================================================
+script:
+  - id: update_status_leds_from_temperature
+    then:
+      - if:
+          condition:
+            lambda: "return !id(ch2_enabled);"
+          then:
+            - light.turn_off: status_leds_ch2
+          else:
+            - if:
+                condition:
+                  lambda: "return isnan(id(pt_channel_2_raw).state);"
+                then:
+                  - light.turn_on:
+                      id: status_leds_ch2
+                      red: 100%
+                      green: 0%
+                      blue: 0%
+                      brightness: !lambda "return id(led_brightness_pct).state / 100.0f;"
+                      effect: "Error Pulse"
+                else:
+                  - light.turn_on:
+                      id: status_leds_ch2
+                      red: !lambda |-
+                        float t = id(pt_channel_2_raw).state;
+                        float min_t = id(led_color_min_c).state;
+                        float max_t = id(led_color_max_c).state;
+                        float low = min_t < max_t ? min_t : max_t;
+                        float high = min_t < max_t ? max_t : min_t;
+                        float range = high - low;
+                        if (range < 0.001f) return 0.0f;
+                        if (t < low) t = low;
+                        if (t > high) t = high;
+                        return (t - low) / range;
+                      green: 0%
+                      blue: !lambda |-
+                        float t = id(pt_channel_2_raw).state;
+                        float min_t = id(led_color_min_c).state;
+                        float max_t = id(led_color_max_c).state;
+                        float low = min_t < max_t ? min_t : max_t;
+                        float high = min_t < max_t ? max_t : min_t;
+                        float range = high - low;
+                        if (range < 0.001f) return 1.0f;
+                        if (t < low) t = low;
+                        if (t > high) t = high;
+                        return 1.0f - ((t - low) / range);
+                      brightness: !lambda "return id(led_brightness_pct).state / 100.0f;"
+                      effect: "None"
+      - if:
+          condition:
+            lambda: "return !id(ch1_enabled);"
+          then:
+            - light.turn_off: status_leds_ch1
+          else:
+            - if:
+                condition:
+                  lambda: "return isnan(id(pt_channel_1_raw).state);"
+                then:
+                  - light.turn_on:
+                      id: status_leds_ch1
+                      red: 100%
+                      green: 0%
+                      blue: 0%
+                      brightness: !lambda "return id(led_brightness_pct).state / 100.0f;"
+                      effect: "Error Pulse"
+                else:
+                  - light.turn_on:
+                      id: status_leds_ch1
+                      red: !lambda |-
+                        float t = id(pt_channel_1_raw).state;
+                        float min_t = id(led_color_min_c).state;
+                        float max_t = id(led_color_max_c).state;
+                        float low = min_t < max_t ? min_t : max_t;
+                        float high = min_t < max_t ? max_t : min_t;
+                        float range = high - low;
+                        if (range < 0.001f) return 0.0f;
+                        if (t < low) t = low;
+                        if (t > high) t = high;
+                        return (t - low) / range;
+                      green: 0%
+                      blue: !lambda |-
+                        float t = id(pt_channel_1_raw).state;
+                        float min_t = id(led_color_min_c).state;
+                        float max_t = id(led_color_max_c).state;
+                        float low = min_t < max_t ? min_t : max_t;
+                        float high = min_t < max_t ? max_t : min_t;
+                        float range = high - low;
+                        if (range < 0.001f) return 1.0f;
+                        if (t < low) t = low;
+                        if (t > high) t = high;
+                        return 1.0f - ((t - low) / range);
+                      brightness: !lambda "return id(led_brightness_pct).state / 100.0f;"
+                      effect: "None"
+
+
+# =====================================================
+# STATUS LEDs (6x WS2812)
+# =====================================================
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_leds
+    name: "${friendly_name} Status LEDs"
+    internal: true
+    rgb_order: GRB
+    chipset: WS2812
+    pin: GPIO17
+    num_leds: 6
+    restore_mode: RESTORE_DEFAULT_OFF
+  - platform: partition
+    id: status_leds_ch2
+    segments:
+      - id: status_leds
+        from: 0
+        to: 2
+    restore_mode: ALWAYS_ON
+    effects:
+      - pulse:
+          name: "Error Pulse"
+          transition_length: 500ms
+          update_interval: 500ms
+  - platform: partition
+    id: status_leds_ch1
+    segments:
+      - id: status_leds
+        from: 3
+        to: 5
+    restore_mode: ALWAYS_ON
+    effects:
+      - pulse:
+          name: "Error Pulse"
+          transition_length: 500ms
+          update_interval: 500ms

@@ -3,7 +3,7 @@ substitutions:
   friendly_name: LinkGear EMESS-PT
   project_name: linkgear.emess_pt
   project_version: "1.0.0"
-  hw_version: "hwv1d1"
+  hw_version: "hwv1d0"
   config_version: "cv1"
 
 esphome:

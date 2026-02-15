@@ -1,10 +1,10 @@
 substitutions:
-  device_name: lg-emess-pt
+  device_name: lg-emess-pt1
   friendly_name: LinkGear EMESS-PT
-  project_name: linkgear.emess_pt
+  project_name: LinkGear.EMESS-PT
   project_version: "1.0.0"
   hw_version: "hwv1d0"
-  config_version: "cv1"
+  config_version: "cv2"
 
 esphome:
   name: "${device_name}"
@@ -17,6 +17,14 @@ esphome:
   on_boot:
     priority: -100
     then:
+      - light.turn_on:
+          id: status_leds
+          red: 0%
+          green: 100%
+          blue: 0%
+          brightness: 40%
+      - delay: 700ms
+      - light.turn_off: status_leds
       - script.execute: update_status_leds_from_temperature
 
 esp32:
@@ -30,13 +38,13 @@ logger:
 # Enable Home Assistant API
 api:
   actions:
-  - action: emess_action_rtttl
+  - action: play_buzzer
     variables:
       song_str: string
     then:
     - rtttl.play:
         rtttl: !lambda 'return song_str;'
-
+  reboot_timeout: 0s
 
 # Enable Over The Air updates
 ota:
@@ -59,6 +67,170 @@ esp32_improv:
 wifi:
   ap:
     ssid: "${friendly_name}"
+
+
+# =====================================================
+# PT100/PT1000 SENSOR DEFINITIONS
+# =====================================================
+sensor:
+  # -------------------------------------------------
+  # CHANNEL 1 – PT100 (DEFAULT)
+  # -------------------------------------------------
+  - platform: max31865
+    id: pt_channel_1_raw
+    name: "PT Channel 1"
+    icon: mdi:thermometer
+    spi_id: spi_bus
+    cs_pin:
+      number: GPIO5
+      ignore_strapping_warning: true
+
+    # --- DEFAULT (PT1000, 2-WIRE) ---
+    rtd_nominal_resistance: 100.0
+    reference_resistance: 400.0
+    #rtd_wires: 2
+
+    # --- EXAMPLE PT1000 3-WIRE ---
+    rtd_wires: 3
+
+    # --- EXAMPLE PT1000 4-WIRE ---
+    # rtd_wires: 4
+
+    update_interval: 5s
+    accuracy_decimals: 2
+
+    filters:
+      - lambda: |-
+          if (!id(ch1_enabled)) return NAN;
+          if (isnan(x)) return NAN;
+          const float t = x + id(pt_channel_1_offset_c).state;
+          if (t < -80.0f || t > 400.0f) return NAN;
+          return t;
+    on_value:
+      then:
+        - script.execute: update_status_leds_from_temperature
+        - script.execute: check_temperature_alarm
+
+  # -------------------------------------------------
+  # CHANNEL 2 – PT1000 (DEFAULT)
+  # -------------------------------------------------
+  - platform: max31865
+    id: pt_channel_2_raw
+    name: "PT Channel 2"
+    icon: mdi:thermometer
+    spi_id: spi_bus
+    cs_pin: GPIO4
+
+    # --- DEFAULT (PT100, 2-WIRE) ---
+    rtd_nominal_resistance: 1000.0
+    reference_resistance: 4000.0
+    rtd_wires: 2
+
+    update_interval: 5s
+    accuracy_decimals: 2
+
+    filters:
+      - lambda: |-
+          if (!id(ch2_enabled)) return NAN;
+          if (isnan(x)) return NAN;
+          const float t = x + id(pt_channel_2_offset_c).state;
+          if (t < -80.0f || t > 400.0f) return NAN;
+          return t;
+    on_value:
+      then:
+        - script.execute: update_status_leds_from_temperature
+        - script.execute: check_temperature_alarm
+
+  # -------------------------------------------------
+  # MISC DEBUG SENSORS
+  # -------------------------------------------------
+
+  - platform: uptime
+    id: sys_uptime
+    name: "Uptime"
+    icon: mdi:timer-outline
+    update_interval: 30s
+    entity_category: diagnostic
+
+  - platform: wifi_signal
+    id: wifi_signal_db
+    name: "WiFi Signal"
+    icon: mdi:wifi
+    update_interval: 30s
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      icon: mdi:ip-network
+      entity_category: diagnostic
+    ssid:
+      name: "WiFi SSID"
+      icon: mdi:wifi-settings
+      entity_category: diagnostic
+
+binary_sensor:
+  - platform: template
+    id: pt_sensors_status
+    name: "PT Sensors Status"
+    icon: mdi:alert-circle-outline
+    device_class: problem
+    entity_category: diagnostic
+    lambda: |-
+      const bool ch1_ok = !id(ch1_enabled) || !isnan(id(pt_channel_1_raw).state);
+      const bool ch2_ok = !id(ch2_enabled) || !isnan(id(pt_channel_2_raw).state);
+      return !(ch1_ok && ch2_ok);
+
+# =====================================================
+# ENABLE / DISABLE SWITCHES
+# =====================================================
+switch:
+  - platform: template
+    name: "Enable Channel 1"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: id(ch1_enabled) = true;
+      - script.execute: update_status_leds_from_temperature
+    turn_off_action:
+      - lambda: id(ch1_enabled) = false;
+      - script.execute: update_status_leds_from_temperature
+    optimistic: true
+
+  - platform: template
+    name: "Enable Channel 2"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: id(ch2_enabled) = true;
+      - script.execute: update_status_leds_from_temperature
+    turn_off_action:
+      - lambda: id(ch2_enabled) = false;
+      - script.execute: update_status_leds_from_temperature
+    optimistic: true
+
+  - platform: template
+    name: "Alarm Outside Temperature Range"
+    id: alarm_outside_temp_range
+    icon: mdi:alarm-light-outline
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+# =====================================================
+# DEVICE CONTROL BUTTONS
+# =====================================================
+button:
+  - platform: restart
+    icon: mdi:power-cycle
+    name: "ESP Reboot"
+
+  - platform: factory_reset
+    disabled_by_default: True
+    name: "Factory Reset ESP"
+    id: factory_reset_all
+
 
 # =====================================================
 # SPI BUS
@@ -83,13 +255,71 @@ globals:
     restore_value: true
     initial_value: "true"
 
+  - id: last_alarm_buzz_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
 # =====================================================
-# LED COLOR RANGE (Home Assistant sliders)
+# LED / CALIBRATION / ALARM SETTINGS
 # =====================================================
 number:
   - platform: template
+    id: pt_channel_1_offset_c
+    name: "PT Channel 1 Offset °C"
+    icon: mdi:tune-variant
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -20
+    max_value: 20
+    step: 0.1
+    initial_value: 0
+
+  - platform: template
+    id: pt_channel_2_offset_c
+    name: "PT Channel 2 Offset °C"
+    icon: mdi:tune-variant
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -20
+    max_value: 20
+    step: 0.1
+    initial_value: 0
+
+  - platform: template
+    id: alarm_temp_min_c
+    name: "Alarm Min Temperature °C"
+    icon: mdi:thermometer-low
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -50
+    max_value: 200
+    step: 0.5
+    initial_value: -10
+    set_action:
+      - script.execute: check_temperature_alarm
+
+  - platform: template
+    id: alarm_temp_max_c
+    name: "Alarm Max Temperature °C"
+    icon: mdi:thermometer-high
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: -50
+    max_value: 300
+    step: 0.5
+    initial_value: 120
+    set_action:
+      - script.execute: check_temperature_alarm
+
+  - platform: template
     id: led_color_min_c
-    name: "${friendly_name} LED Color Min °C"
+    name: "LED Color Min °C"
+    icon: mdi:thermometer-low
     entity_category: config
     optimistic: true
     restore_value: true
@@ -102,7 +332,8 @@ number:
 
   - platform: template
     id: led_color_max_c
-    name: "${friendly_name} LED Color Max °C"
+    name: "LED Color Max °C"
+    icon: mdi:thermometer-high
     entity_category: config
     optimistic: true
     restore_value: true
@@ -115,7 +346,8 @@ number:
 
   - platform: template
     id: led_brightness_pct
-    name: "${friendly_name} LED Brightness %"
+    name: "LED Brightness %"
+    icon: mdi:brightness-6
     entity_category: config
     optimistic: true
     restore_value: true
@@ -125,94 +357,6 @@ number:
     initial_value: 45
     set_action:
       - script.execute: update_status_leds_from_temperature
-
-# =====================================================
-# MAX31865 SENSORS
-# =====================================================
-sensor:
-  # -------------------------------------------------
-  # CHANNEL 1 – PT100 (DEFAULT)
-  # -------------------------------------------------
-  - platform: max31865
-    id: pt_channel_1_raw
-    name: "${friendly_name} PT Channel 1"
-    spi_id: spi_bus
-    cs_pin: GPIO5
-
-    # --- DEFAULT (PT1000, 2-WIRE) ---
-    rtd_nominal_resistance: 100.0
-    reference_resistance: 400.0
-    #rtd_wires: 2
-
-    # --- EXAMPLE PT1000 3-WIRE ---
-    rtd_wires: 3
-
-    # --- EXAMPLE PT1000 4-WIRE ---
-    # rtd_wires: 4
-
-    update_interval: 5s
-    accuracy_decimals: 2
-
-    filters:
-      - lambda: |-
-          if (!id(ch1_enabled)) return NAN;
-          return x;
-    on_value:
-      then:
-        - script.execute: update_status_leds_from_temperature
-
-  # -------------------------------------------------
-  # CHANNEL 2 – PT1000 (DEFAULT)
-  # -------------------------------------------------
-  - platform: max31865
-    id: pt_channel_2_raw
-    name: "${friendly_name} PT Channel 2"
-    spi_id: spi_bus
-    cs_pin: GPIO4
-
-    # --- DEFAULT (PT100, 2-WIRE) ---
-    rtd_nominal_resistance: 1000.0
-    reference_resistance: 4000.0
-    rtd_wires: 2
-
-    update_interval: 5s
-    accuracy_decimals: 2
-
-    filters:
-      - lambda: |-
-          if (!id(ch2_enabled)) return NAN;
-          return x;
-    on_value:
-      then:
-        - script.execute: update_status_leds_from_temperature
-
-# =====================================================
-# ENABLE / DISABLE SWITCHES
-# =====================================================
-switch:
-  - platform: template
-    name: "${friendly_name} Enable Channel 1"
-    entity_category: config
-    restore_mode: RESTORE_DEFAULT_ON
-    turn_on_action:
-      - lambda: id(ch1_enabled) = true;
-      - script.execute: update_status_leds_from_temperature
-    turn_off_action:
-      - lambda: id(ch1_enabled) = false;
-      - script.execute: update_status_leds_from_temperature
-    optimistic: true
-
-  - platform: template
-    name: "${friendly_name} Enable Channel 2"
-    entity_category: config
-    restore_mode: RESTORE_DEFAULT_ON
-    turn_on_action:
-      - lambda: id(ch2_enabled) = true;
-      - script.execute: update_status_leds_from_temperature
-    turn_off_action:
-      - lambda: id(ch2_enabled) = false;
-      - script.execute: update_status_leds_from_temperature
-    optimistic: true
 
 # =====================================================
 # BUZZER
@@ -232,6 +376,32 @@ rtttl:
 # COLOR TEMPERATURE SCRIPT
 # =====================================================
 script:
+  - id: check_temperature_alarm
+    then:
+      - lambda: |-
+          if (!id(alarm_outside_temp_range).state) return;
+
+          const float min_t = id(alarm_temp_min_c).state;
+          const float max_t = id(alarm_temp_max_c).state;
+          bool out_of_range = false;
+
+          if (id(ch1_enabled) && !isnan(id(pt_channel_1_raw).state)) {
+            const float t1 = id(pt_channel_1_raw).state;
+            if (t1 < min_t || t1 > max_t) out_of_range = true;
+          }
+
+          if (id(ch2_enabled) && !isnan(id(pt_channel_2_raw).state)) {
+            const float t2 = id(pt_channel_2_raw).state;
+            if (t2 < min_t || t2 > max_t) out_of_range = true;
+          }
+
+          if (!out_of_range) return;
+
+          const uint32_t now_ms = millis();
+          if ((now_ms - id(last_alarm_buzz_ms)) < 15000) return;
+          id(last_alarm_buzz_ms) = now_ms;
+          id(emess_buzzer).play("alarm:d=8,o=5,b=100:e,e,e,p,e,e,e");
+
   - id: update_status_leds_from_temperature
     then:
       - if:
@@ -332,7 +502,7 @@ script:
 light:
   - platform: esp32_rmt_led_strip
     id: status_leds
-    name: "${friendly_name} Status LEDs"
+    name: "Status LEDs"
     internal: true
     rgb_order: GRB
     chipset: WS2812
@@ -340,7 +510,7 @@ light:
     num_leds: 6
     restore_mode: RESTORE_DEFAULT_OFF
   - platform: partition
-    id: status_leds_ch2
+    id: status_leds_ch1
     segments:
       - id: status_leds
         from: 0
@@ -352,7 +522,7 @@ light:
           transition_length: 500ms
           update_interval: 500ms
   - platform: partition
-    id: status_leds_ch1
+    id: status_leds_ch2
     segments:
       - id: status_leds
         from: 3

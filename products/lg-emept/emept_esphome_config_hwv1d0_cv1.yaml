@@ -46,6 +46,14 @@ api:
         rtttl: !lambda 'return song_str;'
   reboot_timeout: 0s
 
+web_server:
+  port: 80
+  version: 3
+  ota: false
+  auth:
+    username: messweb
+    password: messweb
+
 # Enable Over The Air updates
 ota:
   platform: esphome

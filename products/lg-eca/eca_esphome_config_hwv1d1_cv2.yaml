@@ -1,0 +1,438 @@
+substitutions:
+  device_name: "linkgear-co2-ampel"
+  friendly_name: "LinkGear CO2 Ampel"
+  project_name: "LinkGear.co2ampel"
+  project_version: "1.2"
+  hw_version: "hwv1d1"
+  config_version: "cv2"
+
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  name_add_mac_suffix: true
+  project:
+    name: "${project_name}"
+    version: "${project_version}"
+  comment: "${hw_version}_${config_version}"
+  on_boot:
+    priority: -100
+    then:
+    - script.execute: eca_start_boot_animation
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  reboot_timeout: 0s
+  actions:
+  - action: play_buzzer
+    variables:
+      song_str: string
+    then:
+    - rtttl.play:
+        rtttl: !lambda 'return song_str;'
+
+
+# Enable Over The Air updates
+ota:
+  platform: esphome
+
+#Public location of this yaml file
+dashboard_import:
+  package_import_url:
+    github://performeon/LinkGearMisc/products/lg-eca/eca_esphome_config_hwv1d1_cv2.yaml@main
+  import_full_config: true
+
+# Enable fallback hotspot (captive portal) in case wifi connection fails
+captive_portal:
+
+improv_serial:
+
+esp32_improv:
+  authorizer: none
+
+wifi:
+  ap:
+    ssid: "${friendly_name}"
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+  id: bus_a
+
+esp32_touch:
+  setup_mode: false
+
+globals:
+- id: eca_night_mode_active
+  type: bool
+  restore_value: no
+  initial_value: 'false'
+- id: eca_scd41_has_first_reading
+  type: bool
+  restore_value: no
+  initial_value: 'false'
+- id: eca_last_co2_alarm_buzz_ms
+  type: uint32_t
+  restore_value: no
+  initial_value: '0'
+
+script:
+- id: eca_start_boot_animation
+  then:
+  - if:
+      condition:
+        lambda: return !id(eca_scd41_has_first_reading);
+      then:
+      - light.turn_on:
+          id: eca_leds
+          brightness: 40%
+          red: 0%
+          green: 0%
+          blue: 100%
+          effect: "Boot Spin Blue"
+
+- id: eca_finish_boot_animation
+  then:
+  - if:
+      condition:
+        lambda: return !id(eca_scd41_has_first_reading);
+      then:
+      - lambda: id(eca_scd41_has_first_reading) = true;
+      - if:
+          condition:
+            switch.is_on: eca_led_local_control
+          then:
+          - script.execute: eca_apply_led_state
+          else:
+          - light.turn_off:
+              id: eca_leds
+              transition_length: 500ms
+
+- id: eca_check_co2_alarm
+  then:
+  - lambda: |-
+      if (!id(eca_co2_alarm_enabled).state) return;
+
+      const float co2 = id(eca_scd41_co2).state;
+      if (isnan(co2)) return;
+
+      const float min_co2 = id(eca_co2_alarm_min_ppm).state;
+      const float max_co2 = id(eca_co2_alarm_max_ppm).state;
+      const float low_co2 = min_co2 < max_co2 ? min_co2 : max_co2;
+      const float high_co2 = min_co2 < max_co2 ? max_co2 : min_co2;
+      if (co2 >= low_co2 && co2 <= high_co2) return;
+
+      const uint32_t now_ms = millis();
+      if ((now_ms - id(eca_last_co2_alarm_buzz_ms)) < 15000) return;
+      id(eca_last_co2_alarm_buzz_ms) = now_ms;
+      id(eca_buzzer).play("alarm:d=8,o=5,b=100:e,e,e,p,e,e,e");
+
+- id: eca_apply_led_state
+  mode: restart
+  then:
+  - lambda: |-
+      if (!id(eca_led_local_control).state) {
+        return;
+      }
+
+      if (!id(eca_scd41_has_first_reading)) {
+        return;
+      }
+
+      const float threshold = id(eca_led_night_mode_threshold).state;
+      const float lux = id(eca_bh1750_illuminance).state;
+      if (threshold >= 0.0f && isnan(lux)) {
+        auto off_call = id(eca_leds).turn_off();
+        off_call.set_transition_length(0);
+        off_call.perform();
+        return;
+      }
+
+      float hysteresis = threshold * 0.2f;
+      if (hysteresis < 3.0f) {
+        hysteresis = 3.0f;
+      }
+
+      if (threshold < 0.0f) {
+        id(eca_night_mode_active) = false;
+      } else if (id(eca_night_mode_active)) {
+        if (lux >= threshold + hysteresis) {
+          id(eca_night_mode_active) = false;
+        }
+      } else if (lux <= threshold) {
+        id(eca_night_mode_active) = true;
+      }
+
+      if (id(eca_night_mode_active)) {
+        auto off_call = id(eca_leds).turn_off();
+        off_call.set_transition_length(1500);
+        off_call.perform();
+        return;
+      }
+
+      const float co2 = id(eca_scd41_co2).state;
+      if (isnan(co2)) {
+        return;
+      }
+
+      float brightness = id(eca_led_brightness_pct).state / 100.0f;
+      float red = 0.0f;
+      float green = 1.0f;
+      float blue = 0.0f;
+
+      if (co2 >= 1500.0f) {
+        brightness += 0.20f;
+        if (brightness > 1.0f) {
+          brightness = 1.0f;
+        }
+        red = 1.0f;
+        green = 0.0f;
+      } else if (co2 >= 1200.0f) {
+        red = 1.0f;
+        green = 0.5f;
+      } else if (co2 >= 800.0f) {
+        red = 1.0f;
+      }
+
+      auto clear_effect_call = id(eca_leds).turn_on();
+      clear_effect_call.set_effect("None");
+      clear_effect_call.perform();
+
+      auto on_call = id(eca_leds).turn_on();
+      on_call.set_transition_length(1000);
+      on_call.set_brightness(brightness);
+      on_call.set_red(red);
+      on_call.set_green(green);
+      on_call.set_blue(blue);
+      on_call.perform();
+
+sensor:
+- platform: scd4x
+  ambient_pressure_compensation_source: eca_bme_pressure
+    # temperature_offset: 4  # 4 is default, adjust to your needs
+  update_interval: 60s
+  co2:
+    name: "SCD41 CO2"
+    id: eca_scd41_co2
+    on_value:
+      then:
+      - script.execute: eca_finish_boot_animation
+      - script.execute: eca_apply_led_state
+      - script.execute: eca_check_co2_alarm
+
+  temperature:
+    name: "SCD41 Temperature"
+    id: eca_scd41_temp
+    filters:
+      - offset: -4 # -4 is a good value when used in an enclosure
+  humidity:
+    name: "SCD41 Humidity"
+    id: eca_scd41_hum
+
+- platform: bme280_i2c
+  address: 0x76
+  temperature:
+    name: "BME280 Temperature"
+    id: eca_bme_temp
+    filters:
+      - offset: -7 # -7 is a good value when used in an enclosure
+  pressure:
+    name: "BME280 Pressure"
+    id: eca_bme_pressure
+  humidity:
+    name: "BME280 Humidity"
+    id: eca_bme_hum
+
+- platform: bh1750
+  name: "BH1750 Illuminance"
+  id: eca_bh1750_illuminance
+  address: 0x5c
+  update_interval: 60s
+  on_value:
+    then:
+    - script.execute: eca_apply_led_state
+
+- platform: uptime
+  name: "Uptime"
+  id: eca_uptime
+  icon: mdi:timer-outline
+  unit_of_measurement: h
+  accuracy_decimals: 2
+  update_interval: 60s
+  entity_category: diagnostic
+  filters:
+  - lambda: return x / 3600.0;
+
+- platform: wifi_signal
+  name: "WiFi Signal"
+  id: eca_wifi_signal_db
+  icon: mdi:wifi
+  update_interval: 30s
+  entity_category: diagnostic
+
+- platform: template
+  name: "SCD41 CO2 Moving Average 60m"
+  id: eca_co2_moving_avg
+  unit_of_measurement: "ppm"
+  lambda: |-
+    return id(eca_scd41_co2).state;
+  filters:
+  - sliding_window_moving_average:
+      window_size: 60
+      send_every: 1
+
+text_sensor:
+- platform: wifi_info
+  ip_address:
+    name: "IP Address"
+    icon: mdi:ip-network
+    entity_category: diagnostic
+  ssid:
+    name: "WiFi SSID"
+    icon: mdi:wifi-settings
+    entity_category: diagnostic
+
+binary_sensor:
+- platform: esp32_touch
+  name: "Touch Button"
+  id: eca_touch_button
+  pin: GPIO4
+  threshold: 1000
+  entity_category: diagnostic
+  disabled_by_default: true
+
+light:
+- platform: esp32_rmt_led_strip
+  name: "SK6812 LEDs"
+  rgb_order: GRB
+  pin: GPIO18
+  num_leds: 8
+  chipset: SK6812
+  id: eca_leds
+  restore_mode: ALWAYS_OFF    # Ensures the light is initially off
+  effects:
+  - addressable_lambda:
+      name: "Boot Spin Blue"
+      update_interval: 120ms
+      lambda: |-
+        static uint16_t offset = 0;
+        const uint16_t count = it.size();
+        it.all() = Color(0, 0, 0);
+        for (uint16_t i = 0; i < count; i++) {
+          const uint16_t distance = (i + count - offset) % count;
+          if (distance == 0) {
+            it[i] = Color(0, 0, 255);
+          } else if (distance == 1 || distance == count - 1) {
+            it[i] = Color(0, 0, 64);
+          }
+        }
+        offset = (offset + 1) % count;
+
+switch:
+- platform: template
+  name: "LED Local CO2 Logic"
+  id: eca_led_local_control
+  icon: "mdi:led-strip-variant"
+  entity_category: config
+  optimistic: true
+  restore_mode: RESTORE_DEFAULT_ON
+  turn_on_action:
+  - script.execute: eca_apply_led_state
+  turn_off_action:
+  - lambda: |-
+      // Stop local LED updates and leave direct light control to the user/Home Assistant.
+      return;
+
+- platform: template
+  name: "CO2 Alarm Outside Range"
+  id: eca_co2_alarm_enabled
+  icon: "mdi:alarm-light-outline"
+  entity_category: config
+  restore_mode: RESTORE_DEFAULT_OFF
+  optimistic: true
+  turn_on_action:
+  - script.execute: eca_check_co2_alarm
+
+number:
+- platform: template
+  name: "LED Night Mode Threshold"
+  id: eca_led_night_mode_threshold
+  icon: "mdi:weather-night"
+  entity_category: config
+  unit_of_measurement: "lx"
+  optimistic: true
+  restore_value: true
+  # -1 disables night mode; values >= 0 use the BH1750 illuminance threshold.
+  initial_value: -1
+  min_value: -1
+  max_value: 200
+  step: 1
+  mode: slider
+  set_action:
+  - script.execute: eca_apply_led_state
+
+- platform: template
+  name: "LED Brightness %"
+  id: eca_led_brightness_pct
+  icon: "mdi:brightness-6"
+  entity_category: config
+  optimistic: true
+  restore_value: true
+  initial_value: 30
+  min_value: 1
+  max_value: 100
+  step: 1
+  mode: slider
+  set_action:
+  - script.execute: eca_apply_led_state
+
+- platform: template
+  name: "CO2 Alarm Min ppm"
+  id: eca_co2_alarm_min_ppm
+  icon: "mdi:molecule-co2"
+  entity_category: config
+  unit_of_measurement: "ppm"
+  optimistic: true
+  restore_value: true
+  initial_value: 400
+  min_value: 0
+  max_value: 5000
+  step: 50
+  mode: box
+  set_action:
+  - script.execute: eca_check_co2_alarm
+
+- platform: template
+  name: "CO2 Alarm Max ppm"
+  id: eca_co2_alarm_max_ppm
+  icon: "mdi:molecule-co2"
+  entity_category: config
+  unit_of_measurement: "ppm"
+  optimistic: true
+  restore_value: true
+  initial_value: 1500
+  min_value: 400
+  max_value: 5000
+  step: 50
+  mode: box
+  set_action:
+  - script.execute: eca_check_co2_alarm
+
+output:
+- platform: ledc
+  id: buzzer_output
+  pin: GPIO19
+
+rtttl:
+  output: buzzer_output
+  gain: 90%
+  id: eca_buzzer
+

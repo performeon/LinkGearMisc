@@ -13,7 +13,7 @@ esphome:
   project:
     name: "${project_name}"
     version: "${project_version}"
-  comment: "${hw_version}_${config_version}"
+  comment: "LinkGear.net CO2 Ampel ${hw_version} ${config_version}"
   on_boot:
     priority: -100
     then:
@@ -188,7 +188,40 @@ script:
       float green = 1.0f;
       float blue = 0.0f;
 
-      if (co2 >= 1500.0f) {
+      if (id(eca_led_smooth_color_mode).state) {
+        if (co2 <= 800.0f) {
+          const float low = 400.0f;
+          const float high = 800.0f;
+          float t = (co2 - low) / (high - low);
+          if (t < 0.0f) {
+            t = 0.0f;
+          } else if (t > 1.0f) {
+            t = 1.0f;
+          }
+
+          // Fade from green to yellow so 800 ppm already appears yellow.
+          red = t;
+          green = 1.0f;
+        } else {
+          const float low = 800.0f;
+          const float high = 1500.0f;
+          float t = (co2 - low) / (high - low);
+          if (t < 0.0f) {
+            t = 0.0f;
+          } else if (t > 1.0f) {
+            t = 1.0f;
+          }
+
+          // Fade from yellow to red between 800 ppm and 1500 ppm.
+          red = 1.0f;
+          green = 1.0f - t;
+          brightness += 0.20f * t;
+        }
+
+        if (brightness > 1.0f) {
+          brightness = 1.0f;
+        }
+      } else if (co2 >= 1500.0f) {
         brightness += 0.20f;
         if (brightness > 1.0f) {
           brightness = 1.0f;
@@ -365,6 +398,19 @@ switch:
   - lambda: |-
       // Stop local LED updates and leave direct light control to the user/Home Assistant.
       return;
+
+- platform: template
+  name: "LED Smooth Color Mode"
+  id: eca_led_smooth_color_mode
+  icon: "mdi:palette-outline"
+  entity_category: config
+  disabled_by_default: true
+  optimistic: true
+  restore_mode: RESTORE_DEFAULT_OFF
+  turn_on_action:
+  - script.execute: eca_apply_led_state
+  turn_off_action:
+  - script.execute: eca_apply_led_state
 
 - platform: template
   name: "CO2 Alarm Outside Range"

@@ -65,7 +65,7 @@ i2c:
   sda: GPIO21
   scl: GPIO22
   scan: true
-  id: bus_a
+  id: eca_bus_a
 
 esp32_touch:
   setup_mode: false
@@ -216,6 +216,7 @@ script:
 
 sensor:
 - platform: scd4x
+  id: eca_scd41
   ambient_pressure_compensation_source: eca_bme_pressure
     # temperature_offset: 4  # 4 is default, adjust to your needs
   update_interval: 60s
@@ -336,6 +337,20 @@ light:
         }
         offset = (offset + 1) % count;
 
+button:
+- platform: template
+  name: "CO2 Manual Calibration"
+  id: eca_co2_manual_calibration
+  icon: "mdi:molecule-co2"
+  entity_category: config
+  disabled_by_default: true
+  on_press:
+  - scd4x.perform_forced_calibration:
+      # Global Monthly Mean CO2
+      # https://gml.noaa.gov/ccgg/trends/global.html
+      value: 426
+      id: eca_scd41
+
 switch:
 - platform: template
   name: "LED Local CO2 Logic"
@@ -428,11 +443,11 @@ number:
 
 output:
 - platform: ledc
-  id: buzzer_output
+  id: eca_buzzer_output
   pin: GPIO19
 
 rtttl:
-  output: buzzer_output
+  output: eca_buzzer_output
   gain: 90%
   id: eca_buzzer
 

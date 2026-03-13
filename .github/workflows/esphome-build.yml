@@ -1,0 +1,61 @@
+name: ESPHome Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "products/**/*.yaml"
+      - ".github/workflows/esphome-build.yml"
+  pull_request:
+    paths:
+      - "products/**/*.yaml"
+      - ".github/workflows/esphome-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate and compile ESPHome configs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t configs < <(find products -name '*.yaml' | sort)
+
+          if [ "${#configs[@]}" -eq 0 ]; then
+            echo "No ESPHome YAML files found under products/"
+            exit 1
+          fi
+
+          for config in "${configs[@]}"; do
+            echo "Validating $config"
+            docker run --rm \
+              -v "$GITHUB_WORKSPACE:/config" \
+              -w /config \
+              ghcr.io/esphome/esphome:latest \
+              config "$config"
+
+            echo "Compiling $config"
+            docker run --rm \
+              -v "$GITHUB_WORKSPACE:/config" \
+              -w /config \
+              ghcr.io/esphome/esphome:latest \
+              compile "$config"
+          done
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: esphome-build-output
+          path: .esphome/build/**
+          if-no-files-found: error
+          retention-days: 14

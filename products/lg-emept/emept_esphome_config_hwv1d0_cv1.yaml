@@ -157,12 +157,12 @@ sensor:
     id: sys_uptime
     name: "Uptime"
     icon: mdi:timer-outline
-  unit_of_measurement: h
-  accuracy_decimals: 2
-  update_interval: 60s
-  entity_category: diagnostic
-  filters:
-  - lambda: return x / 3600.0;
+    unit_of_measurement: h
+    accuracy_decimals: 2
+    update_interval: 60s
+    entity_category: diagnostic
+    filters:
+      - lambda: return x / 3600.0;
 
   - platform: wifi_signal
     id: wifi_signal_db

@@ -31,6 +31,7 @@ jobs:
 
           mapfile -t configs < <(find products -name '*.yaml' | sort)
           mkdir -p firmware-artifacts
+          mkdir -p .ci-home/.platformio
 
           if [ "${#configs[@]}" -eq 0 ]; then
             echo "No ESPHome YAML files found under products/"
@@ -41,6 +42,8 @@ jobs:
             echo "Validating $config"
             docker run --rm \
               --user "$(id -u):$(id -g)" \
+              -e HOME=/config/.ci-home \
+              -e PLATFORMIO_CORE_DIR=/config/.ci-home/.platformio \
               -v "$GITHUB_WORKSPACE:/config" \
               -w /config \
               ghcr.io/esphome/esphome:latest \
@@ -49,6 +52,8 @@ jobs:
             echo "Compiling $config"
             docker run --rm \
               --user "$(id -u):$(id -g)" \
+              -e HOME=/config/.ci-home \
+              -e PLATFORMIO_CORE_DIR=/config/.ci-home/.platformio \
               -v "$GITHUB_WORKSPACE:/config" \
               -w /config \
               ghcr.io/esphome/esphome:latest \

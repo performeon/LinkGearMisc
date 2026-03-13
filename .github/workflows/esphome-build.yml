@@ -56,7 +56,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: esphome-build-output
-          path: .esphome/build/**
+          path: |
+            .esphome/build/**
+            products/**/.esphome/build/**
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14

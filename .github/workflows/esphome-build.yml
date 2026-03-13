@@ -30,6 +30,7 @@ jobs:
           set -euo pipefail
 
           mapfile -t configs < <(find products -name '*.yaml' | sort)
+          mkdir -p firmware-artifacts
 
           if [ "${#configs[@]}" -eq 0 ]; then
             echo "No ESPHome YAML files found under products/"
@@ -39,6 +40,7 @@ jobs:
           for config in "${configs[@]}"; do
             echo "Validating $config"
             docker run --rm \
+              --user "$(id -u):$(id -g)" \
               -v "$GITHUB_WORKSPACE:/config" \
               -w /config \
               ghcr.io/esphome/esphome:latest \
@@ -46,19 +48,31 @@ jobs:
 
             echo "Compiling $config"
             docker run --rm \
+              --user "$(id -u):$(id -g)" \
               -v "$GITHUB_WORKSPACE:/config" \
               -w /config \
               ghcr.io/esphome/esphome:latest \
               compile "$config"
+
+            config_dir="$(dirname "$config")"
+            config_name="$(basename "$config" .yaml)"
+
+            ota_src="$(find "$config_dir/.esphome/build" -type f -name 'firmware.ota.bin' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)"
+            factory_src="$(find "$config_dir/.esphome/build" -type f -name 'firmware.factory.bin' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)"
+
+            if [ -n "$ota_src" ]; then
+              cp "$ota_src" "firmware-artifacts/${config_name}.ota.bin"
+            fi
+
+            if [ -n "$factory_src" ]; then
+              cp "$factory_src" "firmware-artifacts/${config_name}.factory.bin"
+            fi
           done
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v6
         with:
           name: esphome-build-output
-          path: |
-            .esphome/build/**
-            products/**/.esphome/build/**
-          include-hidden-files: true
+          path: firmware-artifacts/**
           if-no-files-found: error
           retention-days: 14

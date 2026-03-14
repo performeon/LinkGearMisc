@@ -31,6 +31,12 @@ logger:
 api:
   reboot_timeout: 0s
   actions:
+  - action: eca_action_rtttl
+    variables:
+      song_str: string
+    then:
+    - rtttl.play:
+        rtttl: !lambda 'return song_str;'
   - action: play_buzzer
     variables:
       song_str: string
@@ -489,11 +495,14 @@ number:
 
 output:
 - platform: ledc
-  id: eca_buzzer_output
   pin: GPIO19
+  channel: 0
+  id: eca_buzzer_gpio19
 
 rtttl:
-  output: eca_buzzer_output
+  output: eca_buzzer_gpio19
   gain: 90%
+  on_finished_playback:
+  - logger.log: 'Song ended!'
   id: eca_buzzer
 

@@ -139,14 +139,14 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Download build artifacts
         uses: actions/download-artifact@v5
         with:
           name: esphome-build-output
           path: release-assets
-
-      - name: Checkout
-        uses: actions/checkout@v5
 
       - name: Sync firmware artifacts into repository
         shell: bash
@@ -154,6 +154,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          if [ ! -d release-assets/products ]; then
+            echo "Expected release-assets/products after artifact download."
+            find release-assets -maxdepth 4 -type f | sort || true
+            exit 1
+          fi
 
           find release-assets/products -type f \
             \( -name '*.ota.bin' -o -name '*.factory.bin' -o -name '*.manifest.json' \) -print0 |

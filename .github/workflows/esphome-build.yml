@@ -61,16 +61,62 @@ jobs:
 
             config_dir="$(dirname "$config")"
             config_name="$(basename "$config" .yaml)"
+            artifact_dir="firmware-artifacts/$config_dir"
+            manifest_path="${config_dir}/${config_name}.manifest.json"
+
+            mkdir -p "$artifact_dir"
 
             ota_src="$(find "$config_dir/.esphome/build" -type f -name 'firmware.ota.bin' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)"
             factory_src="$(find "$config_dir/.esphome/build" -type f -name 'firmware.factory.bin' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)"
 
             if [ -n "$ota_src" ]; then
-              cp "$ota_src" "firmware-artifacts/${config_name}.ota.bin"
+              cp "$ota_src" "${artifact_dir}/${config_name}.ota.bin"
             fi
 
             if [ -n "$factory_src" ]; then
-              cp "$factory_src" "firmware-artifacts/${config_name}.factory.bin"
+              cp "$factory_src" "${artifact_dir}/${config_name}.factory.bin"
+            fi
+
+            if [ -f "$manifest_path" ]; then
+              if [ -z "$ota_src" ]; then
+                echo "Manifest found for $config but no OTA binary was produced."
+                exit 1
+              fi
+
+              ota_md5="$(md5sum "$ota_src" | awk '{print $1}')"
+
+              python3 - "$manifest_path" "$ota_md5" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+ota_md5 = sys.argv[2]
+
+with manifest_path.open("r", encoding="utf-8") as fh:
+    manifest = json.load(fh)
+
+builds = manifest.get("builds", [])
+if not builds:
+    raise SystemExit(f"{manifest_path} does not contain any builds")
+
+updated = 0
+for build in builds:
+    ota = build.get("ota")
+    if ota is None:
+        continue
+    ota["md5"] = ota_md5
+    updated += 1
+
+if updated == 0:
+    raise SystemExit(f"{manifest_path} does not contain any ota blocks")
+
+with manifest_path.open("w", encoding="utf-8", newline="\n") as fh:
+    json.dump(manifest, fh, indent=2)
+    fh.write("\n")
+PY
+
+              cp "$manifest_path" "${artifact_dir}/${config_name}.manifest.json"
             fi
           done
 
@@ -96,6 +142,38 @@ jobs:
           name: esphome-build-output
           path: release-assets
 
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Sync firmware artifacts into repository
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          find release-assets/products -type f \
+            \( -name '*.ota.bin' -o -name '*.factory.bin' -o -name '*.manifest.json' \) -print0 |
+          while IFS= read -r -d '' asset; do
+            repo_path="${asset#release-assets/}"
+            mkdir -p "$(dirname "$repo_path")"
+            cp "$asset" "$repo_path"
+          done
+
+          if [ -n "$(git status --porcelain -- products)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            find products -type f \
+              \( -name '*.ota.bin' -o -name '*.factory.bin' -o -name '*.manifest.json' \) -print0 |
+            xargs -0 git add --
+
+            git commit -m "Update ESPHome firmware artifacts [skip ci]"
+            git push
+          fi
+
+          echo "release_target_sha=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
       - name: Create GitHub release
         shell: bash
         env:
@@ -103,13 +181,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          short_sha="${GITHUB_SHA::7}"
+          mapfile -d '' assets < <(find release-assets -type f -print0 | sort -z)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "No release assets found."
+            exit 1
+          fi
+
+          short_sha="${release_target_sha::7}"
           release_tag="ci-build-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}-${short_sha}"
           release_title="CI Build ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT} (${short_sha})"
 
-          gh release create "$release_tag" release-assets/* \
+          gh release create "$release_tag" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
+            --target "$release_target_sha" \
             --title "$release_title" \
-            --notes "Automated firmware build for commit $GITHUB_SHA." \
+            --notes "Automated firmware build for commit $release_target_sha." \
             --prerelease

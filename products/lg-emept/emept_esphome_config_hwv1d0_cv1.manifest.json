@@ -6,7 +6,7 @@
       "chipFamily": "ESP32",
       "ota": {
         "path": "https://raw.githubusercontent.com/performeon/LinkGearMisc/main/products/lg-emept/emept_esphome_config_hwv1d0_cv1.ota.bin",
-        "md5": "3c0b5807086e71c5c23c504e35118aa6",
+        "md5": "7c7a9875b002fa451dd6cd9aca3673b7",
         "release_url": "https://github.com/performeon/LinkGearMisc/blob/main/products/lg-emept/emept_esphome_config_hwv1d0_cv1.yaml",
         "summary": "Adds managed OTA updates, removes hardcoded web credentials, and assigns missing entity IDs."
       }

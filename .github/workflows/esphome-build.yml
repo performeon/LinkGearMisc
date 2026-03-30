@@ -85,36 +85,39 @@ jobs:
 
               ota_md5="$(md5sum "$ota_src" | awk '{print $1}')"
 
-              python3 - "$manifest_path" "$ota_md5" <<'PY'
-import json
-import pathlib
-import sys
-
-manifest_path = pathlib.Path(sys.argv[1])
-ota_md5 = sys.argv[2]
-
-with manifest_path.open("r", encoding="utf-8") as fh:
-    manifest = json.load(fh)
-
-builds = manifest.get("builds", [])
-if not builds:
-    raise SystemExit(f"{manifest_path} does not contain any builds")
-
-updated = 0
-for build in builds:
-    ota = build.get("ota")
-    if ota is None:
-        continue
-    ota["md5"] = ota_md5
-    updated += 1
-
-if updated == 0:
-    raise SystemExit(f"{manifest_path} does not contain any ota blocks")
-
-with manifest_path.open("w", encoding="utf-8", newline="\n") as fh:
-    json.dump(manifest, fh, indent=2)
-    fh.write("\n")
-PY
+              manifest_updater="$(mktemp)"
+              printf '%s\n' \
+                'import json' \
+                'import pathlib' \
+                'import sys' \
+                '' \
+                'manifest_path = pathlib.Path(sys.argv[1])' \
+                'ota_md5 = sys.argv[2]' \
+                '' \
+                'with manifest_path.open("r", encoding="utf-8") as fh:' \
+                '    manifest = json.load(fh)' \
+                '' \
+                'builds = manifest.get("builds", [])' \
+                'if not builds:' \
+                '    raise SystemExit(f"{manifest_path} does not contain any builds")' \
+                '' \
+                'updated = 0' \
+                'for build in builds:' \
+                '    ota = build.get("ota")' \
+                '    if ota is None:' \
+                '        continue' \
+                '    ota["md5"] = ota_md5' \
+                '    updated += 1' \
+                '' \
+                'if updated == 0:' \
+                '    raise SystemExit(f"{manifest_path} does not contain any ota blocks")' \
+                '' \
+                'with manifest_path.open("w", encoding="utf-8", newline="\n") as fh:' \
+                '    json.dump(manifest, fh, indent=2)' \
+                '    fh.write("\n")' \
+                > "$manifest_updater"
+              python3 "$manifest_updater" "$manifest_path" "$ota_md5"
+              rm -f "$manifest_updater"
 
               cp "$manifest_path" "${artifact_dir}/${config_name}.manifest.json"
             fi
